@@ -220,6 +220,14 @@ A raw per-fixture metric value mixes intrinsic fixture variability with the faul
 ### Mismatched-baseline guard
 If a faulted scenario sits in `T0002`, prefer the `T0002` no-fault baseline. Falling back to a different run's baseline (or a global mean) should be deliberate and flagged in the prediction record, because cross-run drift can introduce false anomalies.
 
+### Fixture-level features versus scenario-level predictions
+
+The feature table is fixture-level: each CSV scenario produces 90 fixture rows, one for each remote_id from 1001 to 1090. These rows are not final predictions. They are the spatial evidence used to build an anomaly profile across the circuit.
+
+The final prediction is scenario-level: each CSV produces one prediction record containing ranked fault zones, confidence levels, and supporting evidence. In other words:
+
+- intermediate data: one row per fixture per CSV
+- final output: one ranked-zone prediction per CSV
 ---
 
 ## 8. Localization Scoring Strategy
@@ -276,6 +284,34 @@ The full prediction path for one scenario is:
 6. **Zone ranking.** Rank candidate zones by zone score.
 7. **Confidence assignment.** For each zone, set a confidence level (High / Medium / Low / Uncertain) using anomaly strength, spatial sharpness, temporal consistency, and cross-family agreement (Section 9).
 8. **Output.** The **top-ranked zone is the primary prediction**; lower-ranked zones are retained as **alternatives**, and become more important when evidence is ambiguous — multiple zones with similar scores, weak cross-family agreement, or unstable temporal behaviour within the window.
+
+### Modeling Architecture Flow
+
+The end-to-end modeling flow, from a single raw CSV scenario to a ranked set of fault zones with evidence:
+
+```mermaid
+flowchart TD
+    A[Raw CSV scenario<br/>~15 min · 90 fixtures] --> B{Split by<br/>message type}
+    B --> C1[COMM rows]
+    B --> C2[RATES rows]
+    B --> C3[EXCOMM rows]
+    B --> C4[CORR rows]
+    C1 --> D[Parse schemas<br/>+ validate rows]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    D --> E[Per-fixture feature aggregation<br/>over the 15-min window]
+    E --> F[Compare against<br/>no-fault baseline]
+    F --> G[Baseline-normalized<br/>anomaly scores]
+    G --> H[Telemetry-family scores<br/>COMM · RATES · EXCOMM · CORR]
+    H --> I[Fixture-level anomaly profile<br/>ordered 1001 → 1090]
+    I --> J[Spatial smoothing<br/>· gradients<br/>· change-point evidence]
+    J --> K[Candidate fault zones]
+    K --> L[Confidence scoring<br/>strength · sharpness ·<br/>cross-family agreement ·<br/>temporal persistence]
+    L --> M[Ranked zones<br/>+ supporting evidence<br/>+ visual explanation]
+```
+
+The architecture predicts **ranked fault zones** by building an **anomaly profile across the ordered fixture chain 1001 → 1090**, not by classifying the scenario into a label. Every stage — feature aggregation, baseline comparison, family scoring, and spatial analysis — operates as a function over that same ordered axis, so the final output is a set of *spatial regions on the loop* with the per-family evidence that produced them. `faultLocation` and `faultResistance` from the filename are deliberately absent from this path; they are joined only into the downstream evaluation table.
 
 ---
 
@@ -381,6 +417,7 @@ Per scenario, the prediction record contains:
 
 A **separate evaluation table** joins `faultLocation` and `faultResistance` from the metadata. Ground truth must never appear on the prediction record itself.
 
+Each CSV scenario should produce exactly one scenario-level prediction record. That record may contain multiple ranked candidate zones, but it is still one prediction output for the scenario.
 ---
 
 ## 13. Risks and Mitigations
