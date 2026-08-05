@@ -2,3 +2,6 @@ EFD_T0001-T0003_Data/
 __pycache__/
 .ipynb_checkpoints/
 outputs/
+TECH_SPEC.md
+DESIGN_SPEC.md
+.DS_Store
